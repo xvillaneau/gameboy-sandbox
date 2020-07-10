@@ -3,12 +3,11 @@
 all: hello-world.gb
 
 clean:
-	find . -name '*.o' -delete
-	rm -f hello-world.gb
+	find . \( -name '*.o' -name '*.gb' \) -delete
 
-main.o:
-	rgbasm -o main.o main.rgbasm
+%.o: %.rgbasm
+	rgbasm -o $@ $<
 
-hello-world.gb: main.o
-	rgblink -o hello-world.gb main.o
-	rgbfix -v -p 0 hello-world.gb
+%.gb: %.o
+	rgblink -t -o $@ $<
+	rgbfix -v -p 0 $@
