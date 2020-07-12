@@ -3,6 +3,7 @@
 ; "Bouncing Logo" Game Boy assembly code.
 ; This reproduces the "some logo bouncing around the screen" pattern that used
 ; to be a very popular screen saver. Maybe it'll hit the corner eventually!
+; You can control the *speed* of the "ball" using the D-Pad.
 
 ; This effect is reproduced here by scrolling the background by one pixel in
 ; each direction after every frame. The directions of travel are reversed when
@@ -13,7 +14,7 @@ INCLUDE "hardware.inc"
 
 
 SECTION "VBlank Interrupt", ROM0[$0040]
-    jp Update
+    jp VSync
 
 
 SECTION "Header", ROM0[$100]
@@ -25,15 +26,21 @@ EntryPoint:
     ds $0150 - @, $00
 
 
+; Constants
+MAX_SPEED EQU 10
+BALL_CHAR EQU $19
+
+
 SECTION "Main", ROM0
 
 Main:
     di          ; Disable interrupts
+.sync
     ; Wait for the vertical blanking interval so that we can disable the LCD.
     ; The rLY value can be 0-153, and the VBlank is in 144-153.
     ld a, [rLY]
     cp 144
-    jr c, Main ; Carry set => a < 144
+    jr c, .sync ; Carry set => a < 144
 
     ; Write 0 to the LDCD to disable the LCD and gain access to the VRAM.
     xor a
@@ -46,18 +53,19 @@ Main:
     ld [rSCX], a
     ld [rSCY], a
 
-    ; Initialize "Physics"
+    ; Initialize HRAM variables
     ld [hYPos], a
     ld [hXPos], a
+    ld [hJoyPressed], a
     ld a, 1
     ld [hYSpeed], a
     ld [hXSpeed], a
 
     ; Prepare ball sprite
     call ResetOAM
-    ld a, $19  ; Nintendo (R) logo
+    ld a, BALL_CHAR  ; Nintendo (R) logo
     ld [oTile], a
-    call MoveBall
+    call RenderBall
 
     ; Set palette intensity to the default
     ld a, %11100100  ; 3 2 1 0
@@ -107,10 +115,11 @@ ResetOAM:
 
 SECTION "Mechanics", ROM0
 
-; This code is run at the end of each frame. It updates the scrolling
-; so that a "bouncing" effect is created. In fact, the background is
-; static and it's the viewport that's moving...
-Update:
+; This code is run at the end of each frame. It detects the inputs, computes
+; the next sprite positions and collisions, then updates the sprite.
+VSync:
+    call JoypadUpdate
+
     ld hl, hYSpeed
     ld bc, hYPos
     ld d, SCRN_Y - 8
@@ -121,42 +130,106 @@ Update:
     ld d, SCRN_X - 8
     call ProcessAxis
 
-    call MoveBall
+    call RenderBall
     reti
 
+; Read the console inputs and update the ball's speed accordingly.
+JoypadUpdate:
+    ; Read the DPad
+    ld a, 1 << 5
+    ld [rP1], a
+
+    ; Read multiple times for reliability
+    REPT 6
+    ld a, [rP1]
+    ENDR
+
+    ; Filter the DPad presses. Warning: 0 means pressed!
+    ; Bits: 3-Down, 2-Up, 1-Left, 0-Right
+    ld hl, hJoyPressed  ; Buttons pressed at previous frame
+    and a, %1111        ; Keep lower nibble only
+    ld c, a             ; Save for later
+    xor a, [hl]         ; Discard same states
+    and a, [hl]         ; Keep falling edges only
+    ld b, a
+
+    ld hl, hYSpeed
+
+    ; Down: increase Y speed
+    bit 3, b
+    jr z, .skipDown
+    ld a, MAX_SPEED
+    cp [hl]
+    jr z, .skipDown
+    inc [hl]
+.skipDown
+
+    ; Up: decrease Y speed
+    bit 2, b
+    jr z, .skipUp
+    ld a, -MAX_SPEED
+    cp [hl]
+    jr z, .skipUp
+    dec [hl]
+.skipUp
+
+    ld hl, hXSpeed
+
+    ; Left: decrease X speed
+    bit 1, b
+    jr z, .skipLeft
+    ld a, -MAX_SPEED
+    cp [hl]
+    jr z, .skipLeft
+    dec [hl]
+.skipLeft
+
+    ; Right: increase X speed
+    bit 0, b
+    jr z, .skipRight
+    ld a, MAX_SPEED
+    cp [hl]
+    jr z, .skipRight
+    inc [hl]
+.skipRight
+
+    ; Store the current pressed buttons
+    ld a, c
+    ld [hJoyPressed], a
+
+    ret
+
 ; Compute the next position along a given axis. If that position is out of
-; bounds
+; bounds, a bounce is computed and the speed reversed.
 ;  @param hl  Address of the speed
 ;  @param bc  Address of the position
 ;  @param d   Length along the axis
 ProcessAxis:
-    ; Update the position
+    ; Update the position by adding the speed to it.
     ld a, [bc]
     add [hl]
     ld [bc], a
 
     ld e, a  ; Store new position for later
 
-    ; Check if new position is in range
-    inc d  ; Make limit exclusive (if lim := $A0, then x == $A0 is in bounds)
-    cp a, d
-    ret c ; Carry => Pos < Limit
+    ; Check if the new position is between zero and the axis length (included).
+    cp d
+    ret z ; Zero set means pos == limit, which is in bounds
+    ret c ; Carry set means 0 <= pos < Limit, therefore no collisions
 
-    ; Check if speed positive of negative
+    ; Compare unsigned speed with 128. If carry is set, then the signed speed
+    ; is positive and we are computing an upper bound collision.
     ld a, [hl]
-    and a
-    ret z ; In case speed is zero, do nothing
-    cp a, $80
-    jr c, .max_bump ; Carry => Speed >= 0
+    cp $80
+    jr c, .limit_bump 
 
     ; Speed < 0 => New position: 0 - pos
     xor a
     jr .inv_speed
 
-.max_bump
-    ; New position: ((max - 1) << 1) - pos
+.limit_bump
+    ; New position: (max << 1) - pos
     ld a, d
-    dec a
     rlca
 
 .inv_speed
@@ -172,7 +245,7 @@ ProcessAxis:
     ret
 
 ; Write the new sprite position in the OAM
-MoveBall:
+RenderBall:
     ld hl, oYPos
     ld a, [hYPos]
     add a, 16
@@ -207,4 +280,5 @@ hYSpeed:
     db
 hXSpeed:
     db
-
+hJoyPressed:
+    db
