@@ -39,40 +39,37 @@ Main:
     xor a
     ld [rLCDC], a
 
-    ; Copy the font tiles to the VRAM byte by byte
-    ld hl, $9000 ; pointer to the VRAM (start in third block)
-    ld de, FontTiles ; pointer to the font in the ROM
-    ld bc, FontTilesEnd - FontTiles ; bytes left to copy
-    call CopyBinary
- 
-    ; Copy the string ASCII values in the VRAM tilemap. Because the font tiles
-    ; are offset by their ASCII value, this should print the string.
-    ld hl, $9800; Pointer to the VRAM tilemap
-    ld de, DisplayedStr ; Point to the string in ROM
-    ld bc, DisplayedStrEnd - DisplayedStr
-    call CopyBinary
-
-    ; Set palette intensity to the default
-    ld a, %11100100  ; 3 2 1 0
-    ld [rBGP], a
-
-    ; Set Scan X and Y to 0
-    xor a
-    ld [rSCX], a
-    ld [rSCY], a
-
     ; Disable sound
     ld [rNR52], a
 
-    ; Enable the LCD with BG display
-    ld a, LCDCF_ON | LCDCF_BGON
-    ld [rLCDC], a
+    ; Set Scan X and Y to 0
+    ld [rSCX], a
+    ld [rSCY], a
 
     ; Initialize "Physics"
+    ld [hYPos], a
+    ld [hXPos], a
+    ld a, 1
+    ld [hYSpeed], a
+    ld [hXSpeed], a
+
+    ; Prepare ball sprite
+    call ResetOAM
+    ld a, $19  ; Nintendo (R) logo
+    ld [oTile], a
+    call MoveBall
+
+    ; Set palette intensity to the default
+    ld a, %11100100  ; 3 2 1 0
+    ld [rOBP0], a
+
+    ; Enable the LCD with BG display
+    ld a, LCDCF_ON | LCDCF_OBJON
+    ld [rLCDC], a
 
     ; Core loop of the program. All this does is wait for the next interrupt.
     ld a, 1
-    ld [rIE], a  ; Enable VBlank interrupts
+    ld [rIE], a  ; Enable VBlank interrupts handling
     ei           ; Enable interrupts
 .loop:
     halt         ; Stop CPU until next interupt
@@ -81,10 +78,10 @@ Main:
 
 SECTION "Tools", ROM0
 
-; Binary data copying macro
-; @param hl  Pointer to the first address to write to
-; @param de  Pointer to the first address to read from
-; @param bc  Number of bytes to copy
+; Copy data around
+;  @param hl  Pointer to the first address to write to
+;  @param de  Pointer to the first address to read from
+;  @param bc  Number of bytes to copy
 CopyBinary:
     ld a, [de]
     ld [hli], a
@@ -96,6 +93,17 @@ CopyBinary:
     ret z
     jr CopyBinary
 
+ResetOAM:
+    ; Reset the sprite data in the OAM
+    ld hl, _OAMRAM
+    ld b, 40 * 4
+    xor a
+.oam_reset
+    ld [hli], a
+    dec b
+    ret z
+    jr .oam_reset
+
 
 SECTION "Mechanics", ROM0
 
@@ -103,86 +111,100 @@ SECTION "Mechanics", ROM0
 ; so that a "bouncing" effect is created. In fact, the background is
 ; static and it's the viewport that's moving...
 Update:
+    ld hl, hYSpeed
+    ld bc, hYPos
+    ld d, SCRN_Y - 8
+    call ProcessAxis
 
-    ; Start by processing X axis. We first read the value of the
-    ; scrolling and check if we've reached a border.
-    ld a, [rSCX]
-    ; Test for SCX == 0 (left bounce)
-    ld b, -1
-    and a
-    jr z, .xbounce
-    ; Next, test for right bounce, this depends on the size of the "ball"
-    ld b, 1
-    cp SCRN_VX - SCRN_X + (DisplayedStrEnd - DisplayedStr) * 8 
-    jr c, .xbounce
-    ; Neither border is reached: Don't update scrolling speed
-    jr .xend
+    inc hl
+    inc bc
+    ld d, SCRN_X - 8
+    call ProcessAxis
 
-.xbounce
-    ; Update the scrolling speed, set as the value in B
-    ld a, b
-    ld [hXScroll], a
-.xend
-
-    ; Same for the Y axis
-    ld a, [rSCY]
-    ld b, -1
-    and a
-    jr z, .ybounce
-    ld b, 1
-    cp SCRN_VY - SCRN_Y + 8
-    jr c, .ybounce
-    jr .yend
-
-.ybounce
-    ld a, b
-    ld [hYScroll], a
-.yend
-
-    call Move
-
-    ; Re-enable interrupts and wait for next frame
+    call MoveBall
     reti
 
-Move:
-    ; Updates the position. Note: a scrolling speed of -1 is actually 255,
-    ; but the scroll offset is also a byte so the overflow makes it work out.
- 
-    ; Update Y first
-    ld hl, rSCY
-    ld a, [hYScroll]
+; Compute the next position along a given axis. If that position is out of
+; bounds
+;  @param hl  Address of the speed
+;  @param bc  Address of the position
+;  @param d   Length along the axis
+ProcessAxis:
+    ; Update the position
+    ld a, [bc]
     add [hl]
-    ld [hli], a
+    ld [bc], a
 
-    ; rSCX is right after rSCY so the LDI puts us there.
-    ld a, [hXScroll]
-    add [hl]
+    ld e, a  ; Store new position for later
+
+    ; Check if new position is in range
+    inc d  ; Make limit exclusive (if lim := $A0, then x == $A0 is in bounds)
+    cp a, d
+    ret c ; Carry => Pos < Limit
+
+    ; Check if speed positive of negative
+    ld a, [hl]
+    and a
+    ret z ; In case speed is zero, do nothing
+    cp a, $80
+    jr c, .max_bump ; Carry => Speed >= 0
+
+    ; Speed < 0 => New position: 0 - pos
+    xor a
+    jr .inv_speed
+
+.max_bump
+    ; New position: ((max - 1) << 1) - pos
+    ld a, d
+    dec a
+    rlca
+
+.inv_speed
+    ; Set new position after bump
+    sub a, e
+    ld [bc], a
+
+    ; Invert speed
+    xor a
+    sub a, [hl]
     ld [hl], a
 
     ret
 
-
-; Binaries 
-SECTION "Font", ROM0
-
-FontTiles:
-INCBIN "font.chr"
-FontTilesEnd:
-
-
-; Text that we will be displaying
-SECTION "Displayed Text", ROM0
-
-DisplayedStr:
-    db "(I'm a Ball)"
-DisplayedStrEnd:
+; Write the new sprite position in the OAM
+MoveBall:
+    ld hl, oYPos
+    ld a, [hYPos]
+    add a, 16
+    ld [hli], a
+    ld a, [hXPos]
+    add a, 8
+    ld [hli], a
+    ret
 
 
-; RAM variables
+SECTION "OAM Labels", OAM
+
+; Some labels pointing to our one sprite in the OAM
+oYPos:
+    db
+oXPos:
+    db
+oTile:
+    db
+oFlags:
+    db
+
+
 SECTION "Memory", HRAM
 
-hXScroll:
+; High RAM variables
+hYPos:
     db
-hYScroll:
+hXPos:
+    db
+hYSpeed:
+    db
+hXSpeed:
     db
 
