@@ -11,82 +11,29 @@
 
 INCLUDE "hardware.inc"
 
+
+SECTION "VBlank Interrupt", ROM0[$0040]
+    jp Update
+
+
 SECTION "Header", ROM0[$100]
 
 EntryPoint:
     nop
-    jp Start
+    jp Main
     ; Make space for ROM header
     ds $0150 - @, $00
 
 
-SECTION "VBlank Interrupt", ROM0[$0040]
+SECTION "Main", ROM0
 
-; This code is run at the end of each frame. It updates the scrolling
-; so that a "bouncing" effect is created. In fact, the background is
-; static and it's the viewport that's moving...
-Bounce:
-
-    ; Start by processing X axis. We first read the value of the
-    ; scrolling and check if we've reached a border.
-    ld a, [rSCX]
-    ; Test for SCX == 0 (left bounce)
-    ld b, -1
-    and a
-    jr z, .xbounce
-    ; Next, test for right bounce, this depends on the size of the "ball"
-    ld b, 1
-    cp SCRN_VX - SCRN_X + (DisplayedStrEnd - DisplayedStr) * 8 
-    jr c, .xbounce
-    ; Neither border is reached: Don't update scrolling speed
-    ldh a, [hXScroll]
-    jr .xmove
-
-.xbounce
-    ; Update the scrolling speed, set as the value in B
-    ld a, b
-    ldh [hXScroll], a
-
-.xmove
-    ; Update the X position. Note: a scrolling speed of -1 is actually 255,
-    ; but the position is also a byte so the overflow makes it work out.
-    ld hl, rSCX
-    add [hl]
-    ld [hl], a
-
-    ; Same for the Y axis
-    ld a, [rSCY]
-    ld b, -1
-    and a
-    jr z, .ybounce
-    ld b, 1
-    cp SCRN_VY - SCRN_Y + 8
-    jr c, .ybounce
-    ldh a, [hYScroll]
-    jr .ymove
-
-.ybounce
-    ld a, b
-    ldh [hYScroll], a
-
-.ymove
-    ld hl, rSCY
-    add [hl]
-    ld [hl], a
-
-    ; Re-enable interrupts and wait for next frame
-    reti
-
-
-SECTION "Initialization", ROM0
-
-Start:
+Main:
     di          ; Disable interrupts
     ; Wait for the vertical blanking interval so that we can disable the LCD.
     ; The rLY value can be 0-153, and the VBlank is in 144-153.
     ld a, [rLY]
     cp 144
-    jr c, Start ; Carry set => a < 144
+    jr c, Main ; Carry set => a < 144
 
     ; Write 0 to the LDCD to disable the LCD and gain access to the VRAM.
     xor a
@@ -121,8 +68,8 @@ Start:
     ld a, LCDCF_ON | LCDCF_BGON
     ld [rLCDC], a
 
+    ; Initialize "Physics"
 
-Main:
     ; Core loop of the program. All this does is wait for the next interrupt.
     ld a, 1
     ld [rIE], a  ; Enable VBlank interrupts
@@ -131,6 +78,8 @@ Main:
     halt         ; Stop CPU until next interupt
     jr .loop     ; Loop forever
 
+
+SECTION "Tools", ROM0
 
 ; Binary data copying macro
 ; @param hl  Pointer to the first address to write to
@@ -146,6 +95,71 @@ CopyBinary:
     or c
     ret z
     jr CopyBinary
+
+
+SECTION "Mechanics", ROM0
+
+; This code is run at the end of each frame. It updates the scrolling
+; so that a "bouncing" effect is created. In fact, the background is
+; static and it's the viewport that's moving...
+Update:
+
+    ; Start by processing X axis. We first read the value of the
+    ; scrolling and check if we've reached a border.
+    ld a, [rSCX]
+    ; Test for SCX == 0 (left bounce)
+    ld b, -1
+    and a
+    jr z, .xbounce
+    ; Next, test for right bounce, this depends on the size of the "ball"
+    ld b, 1
+    cp SCRN_VX - SCRN_X + (DisplayedStrEnd - DisplayedStr) * 8 
+    jr c, .xbounce
+    ; Neither border is reached: Don't update scrolling speed
+    jr .xend
+
+.xbounce
+    ; Update the scrolling speed, set as the value in B
+    ld a, b
+    ld [hXScroll], a
+.xend
+
+    ; Same for the Y axis
+    ld a, [rSCY]
+    ld b, -1
+    and a
+    jr z, .ybounce
+    ld b, 1
+    cp SCRN_VY - SCRN_Y + 8
+    jr c, .ybounce
+    jr .yend
+
+.ybounce
+    ld a, b
+    ld [hYScroll], a
+.yend
+
+    call Move
+
+    ; Re-enable interrupts and wait for next frame
+    reti
+
+Move:
+    ; Updates the position. Note: a scrolling speed of -1 is actually 255,
+    ; but the scroll offset is also a byte so the overflow makes it work out.
+ 
+    ; Update Y first
+    ld hl, rSCY
+    ld a, [hYScroll]
+    add [hl]
+    ld [hli], a
+
+    ; rSCX is right after rSCY so the LDI puts us there.
+    ld a, [hXScroll]
+    add [hl]
+    ld [hl], a
+
+    ret
 
 
 ; Binaries 
