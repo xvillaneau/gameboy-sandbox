@@ -1,4 +1,4 @@
-; vim: syntax=rgbds
+; vim: filetype=rgbds
 
 ; "Bouncing Logo" Game Boy assembly code.
 ; This reproduces the "some logo bouncing around the screen" pattern that used
@@ -14,13 +14,10 @@ INCLUDE "hardware.inc"
 SECTION "Header", ROM0[$100]
 
 EntryPoint:
-    di          ; Disable interrupts
+    nop
     jp Start
-
-; Make space for ROM header
-REPT $150 - $104
-    db 0
-ENDR
+    ; Make space for ROM header
+    ds $0150 - @, $00
 
 
 SECTION "VBlank Interrupt", ROM0[$0040]
@@ -84,6 +81,7 @@ Bounce:
 SECTION "Initialization", ROM0
 
 Start:
+    di          ; Disable interrupts
     ; Wait for the vertical blanking interval so that we can disable the LCD.
     ; The rLY value can be 0-153, and the VBlank is in 144-153.
     ld a, [rLY]
