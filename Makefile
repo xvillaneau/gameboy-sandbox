@@ -1,11 +1,11 @@
 .PHONY: all clean
 
-all: hello-world.gb
+all: hello-world.gb bouncing-logo.gb
 
 clean:
 	find . \( -name '*.o' -name '*.gb' \) -delete
 
-%.o: %.rgbasm
+%.o: %.asm
 	rgbasm -o $@ $<
 
 %.gb: %.o

@@ -1,3 +1,13 @@
+; vim: syntax=rgbds
+
+; "Hello World" Game Boy assembly code.
+; All this does is display "Hello World!"
+
+; This code is a copy of the "Hello World!" example in the Game Boy programming
+; tutorial by Eldred "ISSOtm" Habert. So this is pretty much his copyright.
+; Comments are my own.
+; https://eldred.fr/gb-asm-tutorial/index.html
+
 INCLUDE "hardware.inc"
 
 SECTION "Header", ROM0[$100]

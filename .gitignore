@@ -1,2 +1,3 @@
 *.o
-hello-world.gb
+*.gb
+
