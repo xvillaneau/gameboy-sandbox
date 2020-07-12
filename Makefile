@@ -3,11 +3,12 @@
 all: hello-world.gb bouncing-logo.gb
 
 clean:
-	find . \( -name '*.o' -name '*.gb' \) -delete
+	find . \( -name '*.o' -o -name '*.gb' -o -name '*.sym' \) -delete
 
 %.o: %.asm
 	rgbasm -o $@ $<
 
 %.gb: %.o
-	rgblink -t -o $@ $<
+	rgblink -t -n $*.sym -o $@ $<
 	rgbfix -v -p 0 $@
+
