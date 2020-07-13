@@ -29,6 +29,11 @@ EntryPoint:
 ; Constants
 MAX_SPEED EQU 10
 BALL_CHAR EQU $19
+GRAVITY EQU 1
+
+BallInit:
+    db 20, 10, 0, 2
+BallInitEnd:
 
 
 SECTION "Main", ROM0
@@ -54,12 +59,12 @@ Main:
     ld [rSCY], a
 
     ; Initialize HRAM variables
-    ld [hYPos], a
-    ld [hXPos], a
     ld [hJoyPressed], a
-    ld a, 1
-    ld [hYSpeed], a
-    ld [hXSpeed], a
+    ; All ball variables are in an array
+    ld hl, hBallVars
+    ld de, BallInit
+    ld bc, BallInitEnd - BallInit
+    call CopyBinary
 
     ; Prepare ball sprite
     call ResetOAM
@@ -118,13 +123,21 @@ SECTION "Mechanics", ROM0
 ; This code is run at the end of each frame. It detects the inputs, computes
 ; the next sprite positions and collisions, then updates the sprite.
 VSync:
+    ; Apply Joypad inputs
     call JoypadUpdate
 
+    ; Simulate gravity by applying a constant Y increment
     ld hl, hYSpeed
+    ld a, GRAVITY
+    add [hl]
+    ld [hl], a
+
+    ; Process Y movement and collisions
     ld bc, hYPos
     ld d, SCRN_Y - 8
     call ProcessAxis
 
+    ; Process X movement and collisions
     inc hl
     inc bc
     ld d, SCRN_X - 8
@@ -272,6 +285,7 @@ oFlags:
 SECTION "Memory", HRAM
 
 ; High RAM variables
+hBallVars:
 hYPos:
     db
 hXPos:
