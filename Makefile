@@ -1,6 +1,6 @@
 .PHONY: all clean
 
-all: hello-world.gb bouncing-ball.gb
+all: bouncing-ball.gb
 
 clean:
 	find . \( -name '*.o' -o -name '*.gb' -o -name '*.sym' \) -delete
