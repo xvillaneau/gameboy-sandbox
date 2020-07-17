@@ -31,10 +31,6 @@ MAX_SPEED EQU 10
 BALL_CHAR EQU $19
 GRAVITY EQU 1
 
-BallInit:
-    db 20, 10, 0, 2
-BallInitEnd:
-
 
 SECTION "Main", ROM0
 
@@ -67,8 +63,13 @@ Main:
     call CopyBinary
 
     ; Prepare ball sprite
+    ld hl, $8800  ; VRAM block 1
+    ld de, BallSprite
+    ld bc, BallSpriteEnd - BallSprite
+    call CopyBinary
+
     call ResetOAM
-    ld a, BALL_CHAR  ; Nintendo (R) logo
+    ld a, $80  ; Our ball sprite, first tile in block 1
     ld [oTile], a
     call RenderBall
 
@@ -87,6 +88,10 @@ Main:
 .loop:
     halt         ; Stop CPU until next interupt
     jr .loop     ; Loop forever
+
+BallInit:
+    db 20, 10, 0, 2
+BallInitEnd:
 
 
 SECTION "Tools", ROM0
@@ -267,6 +272,13 @@ RenderBall:
     add a, 8
     ld [hli], a
     ret
+
+
+SECTION "Sprites", ROM0
+
+BallSprite:
+INCBIN "Ball_8x8.2bpp"
+BallSpriteEnd:
 
 
 SECTION "OAM Labels", OAM
