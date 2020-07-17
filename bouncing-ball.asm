@@ -1,14 +1,10 @@
 ; vim: filetype=rgbds
 
-; "Bouncing Logo" Game Boy assembly code.
-; This reproduces the "some logo bouncing around the screen" pattern that used
-; to be a very popular screen saver. Maybe it'll hit the corner eventually!
-; You can control the *speed* of the "ball" using the D-Pad.
+; "Bouncing Ball" Game Boy assembly code.
+; You can control the *speed* of the ball using the D-Pad.
 
-; This effect is reproduced here by scrolling the background by one pixel in
-; each direction after every frame. The directions of travel are reversed when
-; the borders are reached. This is my first time doing interruption handling or
-; moving graphics on the Game Boy, pardon the sloppy code.
+; This is my first time doing interruption handling or moving graphics
+; on the Game Boy, so pardon the sloppy code.
 
 ; Hardware register ddresses
 rJOYPAD  EQU $ff00  ; Joypad comm register
@@ -19,6 +15,7 @@ rSCROLLY EQU $ff42  ; Y scroll, in pixels
 rSCROLLX EQU $ff43  ; X scroll
 rLCDYPOS EQU $ff44  ; Y coord being rendered
 rOBJPAL0 EQU $ff48  ; Object pallet 0
+rOBJPAL1 EQU $ff49  ; Object pallet 1
 rIENABLE EQU $ffff  ; Interrup enable
 
 ; VRAM addresses
@@ -76,6 +73,7 @@ Main:
 
     ; Initialize HRAM variables
     ld [hJoyPressed], a
+
     ; All ball variables are in an array
     ld hl, hBallVars
     ld de, BallInit
@@ -89,17 +87,13 @@ Main:
     call CopyBinary
 
     call ResetOAM
-
-    ld hl, oSTART
-    ld de, OAMInit
-    ld bc, OAMInitEnd - OAMInit
-    call CopyBinary
-
     call RenderBall
 
-    ; Set palette intensity to the default
+    ; Set palette intensities, 0 is default, 1 has 1/2 inverted
     ld a, %11100100  ; 3 2 1 0
     ld [rOBJPAL0], a
+    ld a, %11011000  ; 3 1 2 0
+    ld [rOBJPAL1], a
 
     ; Enable the LCD with BG display
     ld a, %10000110 ; Main on, OBJ on, use tall sprites
@@ -167,6 +161,10 @@ VSync:
     inc bc
     ld d, SCREEN_X - 16
     call ProcessAxis
+    
+    ; Rotation after X speed
+    inc hl
+    inc [hl]
 
     call RenderBall
     reti
@@ -284,24 +282,78 @@ ProcessAxis:
 
 ; Write the new sprite position in the OAM
 RenderBall:
-    ; Left half 
+    ; Put sprite params in bc depending on rotation
+    call ComputeRotation
+
     ld hl, oSTART
+
+    ; Left half 
     ld a, [hYPos]
     add a, 16
     ld [hli], a
+
     ld a, [hXPos]
     add a, 8
-    ld [hl], a
+    ld [hli], a
+
+    ld a, b
+    ld [hli], a
+
+    ld a, c
+    ld [hli], a
 
     ; Right half
-    ld de, 3
-    add hl, de
     ld a, [hYPos]
-    add a, 16
+    add a, 16  ; 8 px to right of first half
     ld [hli], a
+
     ld a, [hXPos]
     add a, 16
-    ld [hl], a
+    ld [hli], a
+
+    ld a, b
+    ld [hli], a
+
+    ; Second half-sprite is rotated 180°, so X and Y flips are inverted
+    ld a, c
+    xor %01100000
+    ld [hli], a
+
+    ret
+
+; Compute rotation sprite parameters
+; At the end of this code, B will hold the offset of the 32-byte tile
+; and C will hold the OAM flags (Y flip & Palette vary)
+ComputeRotation:
+    ld a, [hRot]
+    and %1111
+    ld c, a
+ 
+    ; The purpose of the next block of code is to isolate bits 1-0 of the
+    ; rotation value, and invert them only if bit 2 is set. Branchless-style!
+    and %0111   ; Ignore bit 3
+    cp 4        ; Compare with %100: carry is set if bit 2 is unset
+    ld a, 3     ; Put %0011 in A
+    adc 0       ; If carry was set, A is now %0100
+    xor c       ; Inverts bits 1-0 of C only if bit 2 was set
+    and %0011
+ 
+    ; We now have 0 1 2 3 3 2 1 0 ...
+    ; Convert to the correct sprite address and store in B
+    sla a
+    add $80
+    ld b, a
+
+    ; Now, generate the flags:
+    ; - bit 2 becomes bit 6 (Y-flip)
+    ; - bit 3 becomes bit 4 (palette #)
+    ld a, c
+    and %1100   ; Isolate bits 3-2
+    cp 8        ; Compare with 8 => Carry set if bit 3 unset
+    adc 1       ; Add 1 + carry => Bit 0 set if carry unset (bit 3 set)
+    and %0101   ; Isolate bits 2 & 0
+    swap a      ; Swap nibbles, now bits are 6 and 4 as wanted.
+    ld c, a
 
     ret
 
@@ -309,37 +361,20 @@ RenderBall:
 SECTION "Data", ROM0
 
 BallInit:
-    db 20, 10, 0, 2
+    ; YPos, XPos, YSpeed, XSpeed, Rot
+    db 20, 10, 0, 2, 0
 BallInitEnd:
-OAMInit:
-    db 0, 0, $80, $00
-    db 0, 0, $80, $60
-OAMInitEnd:
 
 
 SECTION "Sprites", ROM0
 
 BallSprite:
 INCBIN "Ball_16x8.2bpp"
-INCBIN "Ball_8x8.2bpp"
 BallSpriteEnd:
 
-SECTION "OAM Labels", OAM
 
-; Some labels pointing to our one sprite in the OAM
-oYPos:
-    db
-oXPos:
-    db
-oTile:
-    db
-oFlags:
-    db
+SECTION "High RAM", HRAM
 
-
-SECTION "Memory", HRAM
-
-; High RAM variables
 hBallVars:
 hYPos:
     db
@@ -348,6 +383,8 @@ hXPos:
 hYSpeed:
     db
 hXSpeed:
+    db
+hRot:
     db
 hJoyPressed:
     db
