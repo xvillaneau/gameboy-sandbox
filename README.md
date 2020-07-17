@@ -14,8 +14,8 @@ screen. After one weekend of poking around, I now have a small ball bouncing
 more convincingly and that can be (somewhat) controlled.
 
 Next steps:
-- [ ] Make proper sprite for the ball
-- [ ] Experiment with using larger sprites (16x16 px?)
+- [x] Make proper sprite for the ball
+- [x] Experiment with using larger sprites (16x16 px?)
 - [ ] Implement 16-bit physics, make the game slower
 - [ ] Implement drag & friction
 - [ ] Add sound effects

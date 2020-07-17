@@ -5,7 +5,7 @@ all: bouncing-ball.gb
 clean:
 	find . \( -name '*.o' -o -name '*.gb' -o -name '*.sym' -o -name '*.2bpp' \) -delete
 
-bouncing-ball.o: bouncing-ball.asm Ball_8x8.2bpp
+bouncing-ball.o: bouncing-ball.asm Ball_8x8.2bpp Ball_16x8.2bpp
 	rgbasm -o $@ $<
 
 %.gb: %.o

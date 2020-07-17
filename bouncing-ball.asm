@@ -28,7 +28,7 @@ vBLOCK2 EQU $9000
 vTILES0 EQU $9800
 vTILES1 EQU $9c00
 
-_OAM EQU $fe00
+oSTART EQU $fe00
 
 ; Hardware constants
 SCREEN_Y EQU 144  ; Screen Y size in pixels
@@ -89,8 +89,12 @@ Main:
     call CopyBinary
 
     call ResetOAM
-    ld a, $80  ; Our ball sprite, first tile in block 1
-    ld [oTile], a
+
+    ld hl, oSTART
+    ld de, OAMInit
+    ld bc, OAMInitEnd - OAMInit
+    call CopyBinary
+
     call RenderBall
 
     ; Set palette intensity to the default
@@ -98,7 +102,7 @@ Main:
     ld [rOBJPAL0], a
 
     ; Enable the LCD with BG display
-    ld a, %10000010 ; Main on, OBJ on
+    ld a, %10000110 ; Main on, OBJ on, use tall sprites
     ld [rLCDCTRL], a
 
     ; Core loop of the program. All this does is wait for the next interrupt.
@@ -129,7 +133,7 @@ CopyBinary:
 
 ResetOAM:
     ; Reset the sprite data in the OAM
-    ld hl, _OAM
+    ld hl, oSTART
     ld b, 40 * 4
     xor a
 .oam_reset
@@ -155,13 +159,13 @@ VSync:
 
     ; Process Y movement and collisions
     ld bc, hYPos
-    ld d, SCREEN_Y - 8
+    ld d, SCREEN_Y - 16
     call ProcessAxis
 
     ; Process X movement and collisions
     inc hl
     inc bc
-    ld d, SCREEN_X - 8
+    ld d, SCREEN_X - 16
     call ProcessAxis
 
     call RenderBall
@@ -280,13 +284,25 @@ ProcessAxis:
 
 ; Write the new sprite position in the OAM
 RenderBall:
-    ld hl, oYPos
+    ; Left half 
+    ld hl, oSTART
     ld a, [hYPos]
     add a, 16
     ld [hli], a
     ld a, [hXPos]
     add a, 8
+    ld [hl], a
+
+    ; Right half
+    ld de, 3
+    add hl, de
+    ld a, [hYPos]
+    add a, 16
     ld [hli], a
+    ld a, [hXPos]
+    add a, 16
+    ld [hl], a
+
     ret
 
 
@@ -295,11 +311,16 @@ SECTION "Data", ROM0
 BallInit:
     db 20, 10, 0, 2
 BallInitEnd:
+OAMInit:
+    db 0, 0, $80, $00
+    db 0, 0, $80, $60
+OAMInitEnd:
 
 
 SECTION "Sprites", ROM0
 
 BallSprite:
+INCBIN "Ball_16x8.2bpp"
 INCBIN "Ball_8x8.2bpp"
 BallSpriteEnd:
 
