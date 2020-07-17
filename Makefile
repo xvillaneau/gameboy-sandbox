@@ -13,5 +13,5 @@ bouncing-ball.o: bouncing-ball.asm Ball_8x8.2bpp
 	rgbfix -v -p 0 $@
 
 %.2bpp: %.png
-	rgbgfx -o $@ $<
+	rgbgfx -h -o $@ $<
 

@@ -10,7 +10,34 @@
 ; the borders are reached. This is my first time doing interruption handling or
 ; moving graphics on the Game Boy, pardon the sloppy code.
 
-INCLUDE "hardware.inc"
+; Hardware register ddresses
+rJOYPAD  EQU $ff00  ; Joypad comm register
+rSOUNDON EQU $ff25  ; Sound general on/off (bit 7 only)
+rLCDCTRL EQU $ff40  ; LCD Controls
+rLCDSTAT EQU $ff41  ; LCD controller status
+rSCROLLY EQU $ff42  ; Y scroll, in pixels 
+rSCROLLX EQU $ff43  ; X scroll
+rLCDYPOS EQU $ff44  ; Y coord being rendered
+rOBJPAL0 EQU $ff48  ; Object pallet 0
+rIENABLE EQU $ffff  ; Interrup enable
+
+; VRAM addresses
+vBLOCK0 EQU $8000
+vBLOCK1 EQU $8800
+vBLOCK2 EQU $9000
+vTILES0 EQU $9800
+vTILES1 EQU $9c00
+
+_OAM EQU $fe00
+
+; Hardware constants
+SCREEN_Y EQU 144  ; Screen Y size in pixels
+SCREEN_X EQU 160  ; Screen X size in pixels
+
+; Constants
+MAX_SPEED EQU 10
+BALL_CHAR EQU $19
+GRAVITY EQU 1
 
 
 SECTION "VBlank Interrupt", ROM0[$0040]
@@ -26,33 +53,26 @@ EntryPoint:
     ds $0150 - @, $00
 
 
-; Constants
-MAX_SPEED EQU 10
-BALL_CHAR EQU $19
-GRAVITY EQU 1
-
-
 SECTION "Main", ROM0
 
 Main:
     di          ; Disable interrupts
 .sync
     ; Wait for the vertical blanking interval so that we can disable the LCD.
-    ; The rLY value can be 0-153, and the VBlank is in 144-153.
-    ld a, [rLY]
-    cp 144
-    jr c, .sync ; Carry set => a < 144
+    ld a, [rLCDYPOS]
+    cp SCREEN_Y      ; Wait for first frame to draw
+    jr c, .sync      ; carry set => V-Blank started
 
     ; Write 0 to the LDCD to disable the LCD and gain access to the VRAM.
     xor a
-    ld [rLCDC], a
+    ld [rLCDCTRL], a
 
     ; Disable sound
-    ld [rNR52], a
+    ld [rSOUNDON], a
 
     ; Set Scan X and Y to 0
-    ld [rSCX], a
-    ld [rSCY], a
+    ld [rSCROLLY], a
+    ld [rSCROLLX], a
 
     ; Initialize HRAM variables
     ld [hJoyPressed], a
@@ -75,23 +95,19 @@ Main:
 
     ; Set palette intensity to the default
     ld a, %11100100  ; 3 2 1 0
-    ld [rOBP0], a
+    ld [rOBJPAL0], a
 
     ; Enable the LCD with BG display
-    ld a, LCDCF_ON | LCDCF_OBJON
-    ld [rLCDC], a
+    ld a, %10000010 ; Main on, OBJ on
+    ld [rLCDCTRL], a
 
     ; Core loop of the program. All this does is wait for the next interrupt.
     ld a, 1
-    ld [rIE], a  ; Enable VBlank interrupts handling
-    ei           ; Enable interrupts
+    ld [rIENABLE], a  ; Enable VBlank interrupts handling
+    ei                ; Enable interrupts
 .loop:
     halt         ; Stop CPU until next interupt
     jr .loop     ; Loop forever
-
-BallInit:
-    db 20, 10, 0, 2
-BallInitEnd:
 
 
 SECTION "Tools", ROM0
@@ -113,7 +129,7 @@ CopyBinary:
 
 ResetOAM:
     ; Reset the sprite data in the OAM
-    ld hl, _OAMRAM
+    ld hl, _OAM
     ld b, 40 * 4
     xor a
 .oam_reset
@@ -139,13 +155,13 @@ VSync:
 
     ; Process Y movement and collisions
     ld bc, hYPos
-    ld d, SCRN_Y - 8
+    ld d, SCREEN_Y - 8
     call ProcessAxis
 
     ; Process X movement and collisions
     inc hl
     inc bc
-    ld d, SCRN_X - 8
+    ld d, SCREEN_X - 8
     call ProcessAxis
 
     call RenderBall
@@ -155,11 +171,11 @@ VSync:
 JoypadUpdate:
     ; Read the DPad
     ld a, 1 << 5
-    ld [rP1], a
+    ld [rJOYPAD], a
 
     ; Read multiple times for reliability
     REPT 6
-    ld a, [rP1]
+    ld a, [rJOYPAD]
     ENDR
 
     ; Filter the DPad presses. Warning: 0 means pressed!
@@ -274,12 +290,18 @@ RenderBall:
     ret
 
 
+SECTION "Data", ROM0
+
+BallInit:
+    db 20, 10, 0, 2
+BallInitEnd:
+
+
 SECTION "Sprites", ROM0
 
 BallSprite:
 INCBIN "Ball_8x8.2bpp"
 BallSpriteEnd:
-
 
 SECTION "OAM Labels", OAM
 
