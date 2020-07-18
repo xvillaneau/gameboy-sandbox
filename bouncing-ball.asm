@@ -325,34 +325,22 @@ RenderBall:
 ; At the end of this code, B will hold the offset of the 32-byte tile
 ; and C will hold the OAM flags (Y flip & Palette vary)
 ComputeRotation:
-    ld a, [hRot]
-    and %1111
-    ld c, a
- 
-    ; The purpose of the next block of code is to isolate bits 1-0 of the
-    ; rotation value, and invert them only if bit 2 is set. Branchless-style!
-    and %0111   ; Ignore bit 3
-    cp 4        ; Compare with %100: carry is set if bit 2 is unset
-    ld a, 3     ; Put %0011 in A
-    adc 0       ; If carry was set, A is now %0100
-    xor c       ; Inverts bits 1-0 of C only if bit 2 was set
-    and %0011
- 
-    ; We now have 0 1 2 3 3 2 1 0 ...
-    ; Convert to the correct sprite address and store in B
-    sla a
-    add $80
-    ld b, a
+    ldh a, [hRot]
+    and %1111   ; Use low 4 bits for the rotation index
 
-    ; Now, generate the flags:
-    ; - bit 2 becomes bit 6 (Y-flip)
-    ; - bit 3 becomes bit 4 (palette #)
-    ld a, c
-    and %1100   ; Isolate bits 3-2
-    cp 8        ; Compare with 8 => Carry set if bit 3 unset
-    adc 1       ; Add 1 + carry => Bit 0 set if carry unset (bit 3 set)
-    and %0101   ; Isolate bits 2 & 0
-    swap a      ; Swap nibbles, now bits are 6 and 4 as wanted.
+    ; Compute the address of the stored parameters
+    ld hl, RotationParams
+    ld b, 0
+    ld c, a
+    add hl, bc
+
+    ; Extract data
+    ld a, [hl]
+    and a, $0f  ; Low bits are the sprite number
+    add a, $80  ; Add 128 since those are in block 1
+    ld b, a
+    ld a, [hl]
+    and a, $f0  ; High bits are the sprite flags
     ld c, a
 
     ret
@@ -364,6 +352,11 @@ BallInit:
     ; YPos, XPos, YSpeed, XSpeed, Rot
     db 20, 10, 0, 2, 0
 BallInitEnd:
+RotationParams:
+    db $00, $02, $04, $06   ; Sprites un-changed 
+    db $46, $44, $42, $40   ; Reverse order, Y-flipped
+    db $10, $12, $14, $16   ; Use Palette 1 (colors 1-2 flipped)
+    db $56, $54, $52, $50   ; Palette 1, Y-flipped, reversed
 
 
 SECTION "Sprites", ROM0
@@ -371,7 +364,7 @@ SECTION "Sprites", ROM0
 BallSprite:
 INCBIN "Ball_16x8.2bpp"
 BallSpriteEnd:
-
+    
 
 SECTION "High RAM", HRAM
 
