@@ -6,41 +6,15 @@
 ; This is my first time doing interruption handling or moving graphics
 ; on the Game Boy, so pardon the sloppy code.
 
-; Hardware register ddresses
-rJOYPAD  EQU $ff00  ; Joypad comm register
-rSOUNDON EQU $ff25  ; Sound general on/off (bit 7 only)
-rLCDCTRL EQU $ff40  ; LCD Controls
-rLCDSTAT EQU $ff41  ; LCD controller status
-rSCROLLY EQU $ff42  ; Y scroll, in pixels 
-rSCROLLX EQU $ff43  ; X scroll
-rLCDYPOS EQU $ff44  ; Y coord being rendered
-rOBJPAL0 EQU $ff48  ; Object pallet 0
-rOBJPAL1 EQU $ff49  ; Object pallet 1
-rIENABLE EQU $ffff  ; Interrup enable
-
-; VRAM addresses
-vBLOCK0 EQU $8000
-vBLOCK1 EQU $8800
-vBLOCK2 EQU $9000
-vTILES0 EQU $9800
-vTILES1 EQU $9c00
-
-oSTART EQU $fe00
-
-; Hardware constants
-SCREEN_Y EQU 144  ; Screen Y size in pixels
-SCREEN_X EQU 160  ; Screen X size in pixels
-
-; Constants
-MAX_SPEED EQU 10
-GRAVITY EQU $0010
+include "constants.asm"
+include "physics.asm"
 
 
-SECTION "VBlank Interrupt", ROM0[$0040]
+SECTION "VBlank Interrupt", ROM0[_VSYNC_CALL]
     jp VSync
 
 
-SECTION "Header", ROM0[$100]
+SECTION "Header", ROM0[_EXEC_BEGIN]
 
 EntryPoint:
     nop
@@ -73,18 +47,13 @@ Init:
     ; Initialize HRAM variables
     ld [hJoyPressed], a
 
-    ; All ball variables are in an array
-    ld hl, hBallVars
-    ld de, BallInit
-    ld bc, BallInitEnd - BallInit
-    call CopyBinary
-
     ; Prepare ball sprite
     ld hl, $8800  ; VRAM block 1
     ld de, BallSprite
     ld bc, BallSpriteEnd - BallSprite
     call CopyBinary
 
+    call PhysicsInit
     call ResetOAM
     call RenderBall
 
@@ -126,7 +95,7 @@ CopyBinary:
 
 ResetOAM:
     ; Reset the sprite data in the OAM
-    ld hl, oSTART
+    ld hl, _OAM
     ld b, 40 * 4
     xor a
 .oam_reset
@@ -136,173 +105,22 @@ ResetOAM:
     jr .oam_reset
 
 
-SECTION "Mechanics", ROM0
+SECTION "Handlers", ROM0
 
 VSync:
-    ; Run after each frame; computes and makes changes to the ball sprite
-
-    ; TODO: Make joypad 16-bit compatible!
-    ;call JoypadUpdate
-
-    ; Simulate gravity by applying a constant Y increment
-    ld hl, hYSpeed
-    ld de, GRAVITY
-    ld a, [hl]
-    add e
-    ldi [hl], a
-    ld a, [hl]
-    adc d
-    ld [hl], a
-
-    ; Process Y movement and collisions
-    ld hl, hYPos
-    ld de, hYSpeed
-    ld b, SCREEN_Y - 16
-    call ProcessAxis
-
-    ; Process X movement and collisions
-    ld hl, hXPos
-    ld de, hXSpeed
-    ld b, SCREEN_X - 16
-    call ProcessAxis
-
-    ; Rotation after X speed
-    ld hl, hRot
-    inc [hl]
-
+    call PhysicsMain
     call RenderBall
     reti
 
-; Read the console inputs and update the ball's speed accordingly.
-JoypadUpdate:
-    ; Read the DPad
-    ld a, 1 << 5
-    ld [rJOYPAD], a
 
-    ; Read multiple times for reliability
-    REPT 6
-    ld a, [rJOYPAD]
-    ENDR
-
-    ; Filter the DPad presses. Warning: 0 means pressed!
-    ; Bits: 3-Down, 2-Up, 1-Left, 0-Right
-    ld hl, hJoyPressed  ; Buttons pressed at previous frame
-    and a, %1111        ; Keep lower nibble only
-    ld c, a             ; Save for later
-    xor a, [hl]         ; Discard same states
-    and a, [hl]         ; Keep falling edges only
-    ld b, a
-
-    ld hl, hYSpeed
-
-    ; Down: increase Y speed
-    bit 3, b
-    jr z, .skipDown
-    ld a, MAX_SPEED
-    cp [hl]
-    jr z, .skipDown
-    inc [hl]
-.skipDown
-
-    ; Up: decrease Y speed
-    bit 2, b
-    jr z, .skipUp
-    ld a, -MAX_SPEED
-    cp [hl]
-    jr z, .skipUp
-    dec [hl]
-.skipUp
-
-    ld hl, hXSpeed
-
-    ; Left: decrease X speed
-    bit 1, b
-    jr z, .skipLeft
-    ld a, -MAX_SPEED
-    cp [hl]
-    jr z, .skipLeft
-    dec [hl]
-.skipLeft
-
-    ; Right: increase X speed
-    bit 0, b
-    jr z, .skipRight
-    ld a, MAX_SPEED
-    cp [hl]
-    jr z, .skipRight
-    inc [hl]
-.skipRight
-
-    ; Store the current pressed buttons
-    ld a, c
-    ld [hJoyPressed], a
-
-    ret
-
-; Compute the next position along a given axis. If that position is out of
-; bounds, a bounce is computed and the speed reversed.
-;  @param hl  Address of the position (16 BIT!)
-;  @param de  Address of the speed (16 BIT!)
-;  @param b   Length along the axis
-ProcessAxis:
-    ld c, 0
-
-    ; Add speed value to the position (16-bit)
-    ld a, [de]
-    add [hl]
-    ldi [hl], a
-    inc de
-    ld a, [de]
-    adc [hl]
-    ld [hl], a
-
-    ; Process collisions on the high byte (pixels) only
-    ld a, b
-    cp [hl]
-    ret nc
-
-    ; Compute new position after collision
-    ld a, [de]
-    cp $80
-    ld a, c     ; Can't use XOR A, that would reset the carry!
-    sbc a, c
-    and b
-    ld b, a
-
-    ; DC now holds the limit; subtract that from the position
-    ; Low byte of limit is always $00, so do high byte only
-    ld a, [hl]
-    sub b
-    ld [hl], a
-
-    ; Now, subtract that from the limit
-    dec hl
-    ld a, c
-    sub [hl]
-    ldi [hl], a
-    ld a, b
-    sbc [hl]
-    ld [hl], a
-
-    ; Inverse speed (16 bit!).
-    dec de
-    ld h, d
-    ld l, e
-    xor a
-    sub [hl]
-    ldi [hl], a
-    ld a, c     ; Can't use XOR A, that would reset the carry!
-    sbc [hl]
-    ld [hl], a
-
-    ret
+SECTION "Render", ROM0
 
 ; Write the new sprite position in the OAM
 RenderBall:
     ; Put sprite params in bc depending on rotation
     call ComputeRotation
 
-    ld hl, oSTART
+    ld hl, _OAM
 
     ; Left half 
     ldh a, [hYPos + 1]
@@ -363,23 +181,13 @@ ComputeRotation:
     ret
 
 
-SECTION "Data", ROM0
-
-BallInit:
-    ; YPos, XPos, YSpeed, XSpeed
-    dw $1400, $0a00, 0, $00a0
-    ; Rotation
-    db 0
-BallInitEnd:
+SECTION "Sprites", ROM0
 
 RotationParams:
     db $00, $02, $04, $06   ; Sprites un-changed 
     db $46, $44, $42, $40   ; Reverse order, Y-flipped
     db $10, $12, $14, $16   ; Use Palette 1 (colors 1-2 flipped)
     db $56, $54, $52, $50   ; Palette 1, Y-flipped, reversed
-
-
-SECTION "Sprites", ROM0
 
 BallSprite:
 INCBIN "Ball_16x8.2bpp"
