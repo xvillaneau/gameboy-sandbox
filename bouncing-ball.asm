@@ -33,8 +33,7 @@ SCREEN_X EQU 160  ; Screen X size in pixels
 
 ; Constants
 MAX_SPEED EQU 10
-BALL_CHAR EQU $19
-GRAVITY EQU 1
+GRAVITY EQU $0010
 
 
 SECTION "VBlank Interrupt", ROM0[$0040]
@@ -45,15 +44,15 @@ SECTION "Header", ROM0[$100]
 
 EntryPoint:
     nop
-    jp Main
+    jp Init
     ; Make space for ROM header
     ds $0150 - @, $00
 
 
-SECTION "Main", ROM0
+SECTION "Initialization", ROM0
 
-Main:
-    di          ; Disable interrupts
+Init:
+    di
 .sync
     ; Wait for the vertical blanking interval so that we can disable the LCD.
     ld a, [rLCDYPOS]
@@ -139,31 +138,36 @@ ResetOAM:
 
 SECTION "Mechanics", ROM0
 
-; This code is run at the end of each frame. It detects the inputs, computes
-; the next sprite positions and collisions, then updates the sprite.
 VSync:
-    ; Apply Joypad inputs
-    call JoypadUpdate
+    ; Run after each frame; computes and makes changes to the ball sprite
+
+    ; TODO: Make joypad 16-bit compatible!
+    ;call JoypadUpdate
 
     ; Simulate gravity by applying a constant Y increment
     ld hl, hYSpeed
-    ld a, GRAVITY
-    add [hl]
+    ld de, GRAVITY
+    ld a, [hl]
+    add e
+    ldi [hl], a
+    ld a, [hl]
+    adc d
     ld [hl], a
 
     ; Process Y movement and collisions
-    ld bc, hYPos
-    ld d, SCREEN_Y - 16
+    ld hl, hYPos
+    ld de, hYSpeed
+    ld b, SCREEN_Y - 16
     call ProcessAxis
 
     ; Process X movement and collisions
-    inc hl
-    inc bc
-    ld d, SCREEN_X - 16
+    ld hl, hXPos
+    ld de, hXSpeed
+    ld b, SCREEN_X - 16
     call ProcessAxis
-    
+
     ; Rotation after X speed
-    inc hl
+    ld hl, hRot
     inc [hl]
 
     call RenderBall
@@ -237,45 +241,58 @@ JoypadUpdate:
 
 ; Compute the next position along a given axis. If that position is out of
 ; bounds, a bounce is computed and the speed reversed.
-;  @param hl  Address of the speed
-;  @param bc  Address of the position
-;  @param d   Length along the axis
+;  @param hl  Address of the position (16 BIT!)
+;  @param de  Address of the speed (16 BIT!)
+;  @param b   Length along the axis
 ProcessAxis:
-    ; Update the position by adding the speed to it.
-    ld a, [bc]
+    ld c, 0
+
+    ; Add speed value to the position (16-bit)
+    ld a, [de]
     add [hl]
-    ld [bc], a
+    ldi [hl], a
+    inc de
+    ld a, [de]
+    adc [hl]
+    ld [hl], a
 
-    ld e, a  ; Store new position for later
+    ; Process collisions on the high byte (pixels) only
+    ld a, b
+    cp [hl]
+    ret nc
 
-    ; Check if the new position is between zero and the axis length (included).
-    cp d
-    ret z ; Zero set means pos == limit, which is in bounds
-    ret c ; Carry set means 0 <= pos < Limit, therefore no collisions
-
-    ; Compare unsigned speed with 128. If carry is set, then the signed speed
-    ; is positive and we are computing an upper bound collision.
-    ld a, [hl]
+    ; Compute new position after collision
+    ld a, [de]
     cp $80
-    jr c, .limit_bump 
+    ld a, c     ; Can't use XOR A, that would reset the carry!
+    sbc a, c
+    and b
+    ld b, a
 
-    ; Speed < 0 => New position: 0 - pos
+    ; DC now holds the limit; subtract that from the position
+    ; Low byte of limit is always $00, so do high byte only
+    ld a, [hl]
+    sub b
+    ld [hl], a
+
+    ; Now, subtract that from the limit
+    dec hl
+    ld a, c
+    sub [hl]
+    ldi [hl], a
+    ld a, b
+    sbc [hl]
+    ld [hl], a
+
+    ; Inverse speed (16 bit!).
+    dec de
+    ld h, d
+    ld l, e
     xor a
-    jr .inv_speed
-
-.limit_bump
-    ; New position: (max << 1) - pos
-    ld a, d
-    rlca
-
-.inv_speed
-    ; Set new position after bump
-    sub a, e
-    ld [bc], a
-
-    ; Invert speed
-    xor a
-    sub a, [hl]
+    sub [hl]
+    ldi [hl], a
+    ld a, c     ; Can't use XOR A, that would reset the carry!
+    sbc [hl]
     ld [hl], a
 
     ret
@@ -288,11 +305,11 @@ RenderBall:
     ld hl, oSTART
 
     ; Left half 
-    ld a, [hYPos]
+    ldh a, [hYPos + 1]
     add a, 16
     ld [hli], a
 
-    ld a, [hXPos]
+    ldh a, [hXPos + 1]
     add a, 8
     ld [hli], a
 
@@ -303,11 +320,11 @@ RenderBall:
     ld [hli], a
 
     ; Right half
-    ld a, [hYPos]
+    ldh a, [hYPos + 1]
     add a, 16  ; 8 px to right of first half
     ld [hli], a
 
-    ld a, [hXPos]
+    ldh a, [hXPos + 1]
     add a, 16
     ld [hli], a
 
@@ -349,9 +366,12 @@ ComputeRotation:
 SECTION "Data", ROM0
 
 BallInit:
-    ; YPos, XPos, YSpeed, XSpeed, Rot
-    db 20, 10, 0, 2, 0
+    ; YPos, XPos, YSpeed, XSpeed
+    dw $1400, $0a00, 0, $00a0
+    ; Rotation
+    db 0
 BallInitEnd:
+
 RotationParams:
     db $00, $02, $04, $06   ; Sprites un-changed 
     db $46, $44, $42, $40   ; Reverse order, Y-flipped
@@ -364,19 +384,19 @@ SECTION "Sprites", ROM0
 BallSprite:
 INCBIN "Ball_16x8.2bpp"
 BallSpriteEnd:
-    
+
 
 SECTION "High RAM", HRAM
 
 hBallVars:
 hYPos:
-    db
-hXPos:
-    db
+    dw
 hYSpeed:
-    db
+    dw
+hXPos:
+    dw
 hXSpeed:
-    db
+    dw
 hRot:
     db
 hJoyPressed:
