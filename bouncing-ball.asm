@@ -11,7 +11,9 @@ include "physics.asm"
 
 
 SECTION "VBlank Interrupt", ROM0[_VSYNC_CALL]
-    jp VSync
+    call PhysicsMain
+    call RenderBall
+    reti
 
 
 SECTION "Header", ROM0[_EXEC_BEGIN]
@@ -31,40 +33,20 @@ Init:
     ; Wait for the vertical blanking interval so that we can disable the LCD.
     ld a, [rLCDYPOS]
     cp SCREEN_Y      ; Wait for first frame to draw
-    jr c, .sync      ; carry set => V-Blank started
+    jr c, .sync      ; carry unset => V-Blank started
 
-    ; Write 0 to the LDCD to disable the LCD and gain access to the VRAM.
     xor a
-    ld [rLCDCTRL], a
+    ld [rLCDCTRL], a    ; Disable LCD Controller to access VRAM
+    ld [rSOUNDON], a    ; Disable sound
 
-    ; Disable sound
-    ld [rSOUNDON], a
-
-    ; Set Scan X and Y to 0
-    ld [rSCROLLY], a
-    ld [rSCROLLX], a
-
-    ; Initialize HRAM variables
-    ld [hJoyPressed], a
-
-    ; Prepare ball sprite
-    ld hl, $8800  ; VRAM block 1
-    ld de, BallSprite
-    ld bc, BallSpriteEnd - BallSprite
-    call CopyBinary
-
+    ; Initialize
+    call GraphicsInit
     call PhysicsInit
-    call ResetOAM
-    call RenderBall
 
-    ; Set palette intensities, 0 is default, 1 has 1/2 inverted
-    ld a, %11100100  ; 3 2 1 0
-    ld [rOBJPAL0], a
-    ld a, %11011000  ; 3 1 2 0
-    ld [rOBJPAL1], a
-
-    ; Enable the LCD with BG display
-    ld a, %10000110 ; Main on, OBJ on, use tall sprites
+    ; Re-enable the LCD Controller, with options set:
+    ; - Bit 1: sprites enabled
+    ; - Bit 2: Use tall 16x8 sprites
+    ld a, %10000110
     ld [rLCDCTRL], a
 
     ; Core loop of the program. All this does is wait for the next interrupt.
@@ -84,7 +66,7 @@ SECTION "Tools", ROM0
 ;  @param bc  Number of bytes to copy
 CopyBinary:
     ld a, [de]
-    ld [hli], a
+    ldi [hl], a
     inc de
     dec bc
     ; Continue until bc == 0
@@ -99,21 +81,35 @@ ResetOAM:
     ld b, 40 * 4
     xor a
 .oam_reset
-    ld [hli], a
+    ldi [hl], a
     dec b
     ret z
     jr .oam_reset
 
 
-SECTION "Handlers", ROM0
-
-VSync:
-    call PhysicsMain
-    call RenderBall
-    reti
-
-
 SECTION "Render", ROM0
+
+GraphicsInit:
+    call ResetOAM
+
+    ; Set Scan X and Y to 0
+    xor a
+    ld [rSCROLLY], a
+    ld [rSCROLLX], a
+
+    ; Prepare ball sprite
+    ld hl, $8800  ; VRAM block 1
+    ld de, BallSprite
+    ld bc, BallSpriteEnd - BallSprite
+    call CopyBinary
+
+    ; Set palette intensities, 0 is default, 1 has 1/2 inverted
+    ld a, %11100100  ; 3 2 1 0
+    ld [rOBJPAL0], a
+    ld a, %11011000  ; 3 1 2 0
+    ld [rOBJPAL1], a
+
+    ret
 
 ; Write the new sprite position in the OAM
 RenderBall:
@@ -125,34 +121,33 @@ RenderBall:
     ; Left half 
     ldh a, [hYPos + 1]
     add a, 16
-    ld [hli], a
+    ldi [hl], a
 
     ldh a, [hXPos + 1]
     add a, 8
-    ld [hli], a
+    ldi [hl], a
 
     ld a, b
-    ld [hli], a
+    ldi [hl], a
 
     ld a, c
-    ld [hli], a
+    ldi [hl], a
 
     ; Right half
     ldh a, [hYPos + 1]
-    add a, 16  ; 8 px to right of first half
-    ld [hli], a
+    add a, 16
+    ldi [hl], a
 
     ldh a, [hXPos + 1]
-    add a, 16
-    ld [hli], a
+    add a, 16  ; 8 px to right of first half
+    ldi [hl], a
 
     ld a, b
-    ld [hli], a
+    ldi [hl], a
 
-    ; Second half-sprite is rotated 180°, so X and Y flips are inverted
     ld a, c
-    xor %01100000
-    ld [hli], a
+    xor %01100000   ; Invert X and Y flips to rotate 180 degrees
+    ldi [hl], a
 
     ret
 
@@ -193,19 +188,3 @@ BallSprite:
 INCBIN "Ball_16x8.2bpp"
 BallSpriteEnd:
 
-
-SECTION "High RAM", HRAM
-
-hBallVars:
-hYPos:
-    dw
-hYSpeed:
-    dw
-hXPos:
-    dw
-hXSpeed:
-    dw
-hRot:
-    db
-hJoyPressed:
-    db

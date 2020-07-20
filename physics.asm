@@ -1,25 +1,21 @@
 ; vim: filetype=rgbds
 
 ; Constants
-MAX_SPEED EQU 10
-BUMP_FRICTION_SHIFT EQU 4
 GRAVITY EQU $0010
 
-FLAGS_COL EQU 0
 
-
-SECTION "Mechanics", ROM0
+SECTION "Physics", ROM0
 
 PhysicsInit:
     ; All ball variables are in an array
-    ld hl, hBallVars
+    ld hl, PhysicsVars
     ld de, .data
     ld bc, .data_end - .data
     call CopyBinary
     ret
 .data
-    ; YPos, XPos, YSpeed, XSpeed
-    dw $1400, $0a00, 0, $00a0
+    ; YPos, YSpeed, XPos, XSpeed
+    dw $1400, 0, $0a00, $00a0
     ; Rotation
     db 0
 .data_end
@@ -112,4 +108,14 @@ ProcessAxis:
     ld [hl], a
 
     ret
+
+
+SECTION "Physics Variables", HRAM
+
+PhysicsVars:
+hYPos:      dw
+hYSpeed:    dw
+hXPos:      dw
+hXSpeed:    dw
+hRot:       db
 
