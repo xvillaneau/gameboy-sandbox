@@ -86,6 +86,19 @@ ResetOAM:
     ret z
     jr .oam_reset
 
+; Compute the absolute value of the 16-bit value in BC
+AbsValBC:
+    bit 7, b
+    ret z
+
+    xor a
+    sub a, c
+    ld c, a
+    ld a, 0
+    sbc a, b
+    ld b, a
+    ret
+
 
 SECTION "Render", ROM0
 

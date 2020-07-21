@@ -14,8 +14,8 @@ PhysicsInit:
     call CopyBinary
     ret
 .data
-    ; YPos, YSpeed, XPos, XSpeed
-    dw $1400, 0, $0a00, $00a0
+    ; YPos, YSpeed, YAbsSpeed, XPos, XSpeed, XAbsSpeed
+    dw $1400, 0, 0, $0a00, $00a0, $00a0
     ; Rotation
     db 0
 .data_end
@@ -26,12 +26,23 @@ PhysicsMain:
     ; Simulate gravity by applying a constant Y increment
     ld hl, hYSpeed
     ld de, GRAVITY
+
     ld a, [hl]
     add e
     ldi [hl], a
+    ld c, a
+
     ld a, [hl]
     adc d
     ld [hl], a
+    ld b, a
+
+    ; Store the speed's absolute value
+    call AbsValBC
+    ld hl, hYAbsSpeed
+    ld a, c
+    ldi [hl], a
+    ld [hl], b
 
     ; Process Y movement and collisions
     ld hl, hYPos
@@ -115,7 +126,9 @@ SECTION "Physics Variables", HRAM
 PhysicsVars:
 hYPos:      dw
 hYSpeed:    dw
+hYAbsSpeed: dw
 hXPos:      dw
 hXSpeed:    dw
+hXAbsSpeed: dw
 hRot:       db
 
