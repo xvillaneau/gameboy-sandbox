@@ -1,4 +1,4 @@
-; vim: filetype=rgbds
+; vim: filetype
 
 ; Constants
 GRAVITY EQU $0010
@@ -113,6 +113,7 @@ ProcessAxis:
     dec hl
     jr c, .negative_friction ; Carry => V < 0 => Add friction
 
+    ; Otherwise, subtract friction
     ld a, [hl]
     sub BUMP_DV
     ldi [hl], a
@@ -136,18 +137,24 @@ ProcessAxis:
     xor a
     ldi [hl], a
     ldd [hl], a
-    dec hl
 
-    ; HL points at position high byte: set to b-1
+    ; Compute position: If BC == 0 then keep it zero.
+    ; If not, subtract 1 from BC.
     ld a, 1
-    cp b
-    ld a, b
-    sbc c
-    ldd [hl], a
+    cp c
     ld a, c
     sbc c
-    ld [hl], a
+    ld c, a
+    ld a, b
+    sbc 0
+    ld b, a
 
+    ; Set position to value in BC
+    dec hl
+    ld [hl], b
+    dec hl
+    ld [hl], c
+ 
     ret
 
 

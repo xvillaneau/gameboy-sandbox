@@ -11,13 +11,14 @@ So far this is the only project here. It's just a ball bouncing around.
 
 I started with "Hello World", then tried to make the message bounce around the
 screen. After one weekend of poking around, I now have a small ball bouncing
-more convincingly and that can be (somewhat) controlled.
+more convincingly and that loses its speed after a while.
 
 Next steps:
 - [x] Make proper sprite for the ball
 - [x] Experiment with using larger sprites (16x16 px?)
 - [x] Implement 16-bit physics, make the game slower
-- [ ] Implement drag & friction
+- [x] Implement drag & friction
+- [ ] Make rotation depend on collisions
 - [ ] Implement proper controls
 - [ ] Add sound effects
 - [ ] Extend collisions detection to other objects
