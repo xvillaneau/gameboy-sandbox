@@ -2,7 +2,7 @@
 
 ; Constants
 GRAVITY EQU $0010
-
+BUMP_DV EQU $40
 
 SECTION "Physics", ROM0
 
@@ -14,8 +14,8 @@ PhysicsInit:
     call CopyBinary
     ret
 .data
-    ; YPos, YSpeed, YAbsSpeed, XPos, XSpeed, XAbsSpeed
-    dw $1400, 0, 0, $0a00, $00a0, $00a0
+    ; YPos, YSpeed, XPos, XSpeed
+    dw $1400, 0, $0a00, $00a0
     ; Rotation
     db 0
 .data_end
@@ -31,18 +31,9 @@ PhysicsMain:
     add e
     ldi [hl], a
     ld c, a
-
     ld a, [hl]
     adc d
     ld [hl], a
-    ld b, a
-
-    ; Store the speed's absolute value
-    call AbsValBC
-    ld hl, hYAbsSpeed
-    ld a, c
-    ldi [hl], a
-    ld [hl], b
 
     ; Process Y movement and collisions
     ld hl, hYPos
@@ -83,7 +74,8 @@ ProcessAxis:
     ld a, b
     cp [hl]
     ret nc
-    
+    inc b
+
     ; Compute new position after collision
     ld a, [de]
     cp $80
@@ -105,17 +97,55 @@ ProcessAxis:
     ldi [hl], a
     ld a, b
     sbc [hl]
-    ld [hl], a
+    ldi [hl], a  ; HL now points to the speed
 
     ; Inverse speed (16 bit!).
-    dec de
-    ld h, d
-    ld l, e
     xor a
     sub [hl]
     ldi [hl], a
     ld a, c     ; Can't use XOR A, that would reset the carry!
     sbc [hl]
+    ld [hl], a
+
+    ; Subtract constant bump friction
+    ld a, $80
+    cp [hl]
+    dec hl
+    jr c, .negative_friction ; Carry => V < 0 => Add friction
+
+    ld a, [hl]
+    sub BUMP_DV
+    ldi [hl], a
+    ld a, [hl]
+    sbc c
+    ldd [hl], a
+    ret nc
+    jr .set_zero
+
+.negative_friction
+    ld a, [hl]
+    add BUMP_DV
+    ldi [hl], a
+    ld a, [hl]
+    adc c
+    ldd [hl], a
+    ret nc
+
+.set_zero
+    ; HL points at speed; set it to zero
+    xor a
+    ldi [hl], a
+    ldd [hl], a
+    dec hl
+
+    ; HL points at position high byte: set to b-1
+    ld a, 1
+    cp b
+    ld a, b
+    sbc c
+    ldd [hl], a
+    ld a, c
+    sbc c
     ld [hl], a
 
     ret
@@ -126,9 +156,7 @@ SECTION "Physics Variables", HRAM
 PhysicsVars:
 hYPos:      dw
 hYSpeed:    dw
-hYAbsSpeed: dw
 hXPos:      dw
 hXSpeed:    dw
-hXAbsSpeed: dw
 hRot:       db
 
