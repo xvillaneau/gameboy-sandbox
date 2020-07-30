@@ -1,4 +1,4 @@
-; vim: filetype
+; vim: filetype=rgbds
 
 ; Constants
 GRAVITY EQU $0010
@@ -76,7 +76,7 @@ ProcessAxis:
     ret nc
     inc b
 
-    ; Compute new position after collision
+    ; Set B to 0 if the speed is negative
     ld a, [de]
     cp $80
     ld a, c     ; Can't use XOR A, that would reset the carry!
@@ -84,7 +84,7 @@ ProcessAxis:
     and b
     ld b, a
 
-    ; DC now holds the limit; subtract that from the position
+    ; BC now holds the limit; subtract that from the position
     ; Low byte of limit is always $00, so do high byte only
     ld a, [hl]
     sub b
@@ -140,8 +140,8 @@ ProcessAxis:
 
     ; Compute position: If BC == 0 then keep it zero.
     ; If not, subtract 1 from BC.
-    ld a, 1
-    cp c
+    xor a
+    cp b
     ld a, c
     sbc c
     ld c, a
