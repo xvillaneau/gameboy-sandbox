@@ -1,5 +1,7 @@
 ; vim: filetype=rgbds
 
+INCLUDE "macros.asm" 
+
 ; Constants
 GRAVITY EQU $0010
 BUMP_DV EQU $40
@@ -18,6 +20,8 @@ PhysicsInit:
     dw $1400, 0, $0a00, $00a0
     ; Rotation
     db 0
+    ; Collision calculations
+    dw 0, 0, 0
 .data_end
 
 PhysicsMain:
@@ -158,6 +162,43 @@ ProcessAxis:
     ret
 
 
+ProcessCollision:
+    ; Negate the relative position (now positive)
+    ld hl, hCYPos
+    NegAtHL
+    inc hl
+
+    ; Y Speed in the collision referential is always negative,
+    ; therefore we need to add the friction.
+    ld a, [hl]
+    add BUMP_DV
+    ldi [hl], a
+    ld a, [hl]
+    adc 0
+    ldd [hl], a
+    ; If adding the friction made the speed positive, then we
+    ; set it to zero and stick the ball against the wall.
+    jr c, .set_zero
+
+    ; Otherwise, negate the Y speed (now positive)
+    NegAtHL
+    ret
+
+.set_zero
+    ; Set speed to 0
+    xor a
+    ldi [hl], a  ; Speed, low byte
+    ldd [hl], a  ; Speed, high byte
+
+    ; Set position to 1 sub-pixel
+    dec hl
+    ldd [hl], a  ; Pos, high byte
+    inc a
+    ld [hl], a   ; Pos, low byte
+ 
+    ret
+
+
 SECTION "Physics Variables", HRAM
 
 PhysicsVars:
@@ -166,4 +207,7 @@ hYSpeed:    dw
 hXPos:      dw
 hXSpeed:    dw
 hRot:       db
-
+; Collision calculations
+hCYPos:     dw
+hCYSpeed:   dw
+hCXSpeed:   dw
