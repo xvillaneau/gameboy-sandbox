@@ -169,7 +169,8 @@ RenderBall:
 ; and C will hold the OAM flags (Y flip & Palette vary)
 ComputeRotation:
     ldh a, [hRot]
-    and %1111   ; Use low 4 bits for the rotation index
+    and $f0   ; Use high 4 bits for the rotation index
+    swap a
 
     ; Compute the address of the stored parameters
     ld hl, RotationParams

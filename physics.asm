@@ -19,41 +19,101 @@ PhysicsInit:
     ; YPos, YSpeed, XPos, XSpeed
     dw $1400, 0, $0a00, $00a0
     ; Rotation
-    db 0
+    db 0, 1
     ; Collision calculations
     dw 0, 0, 0
+    db 0
 .data_end
 
 PhysicsMain:
-    ; Run after each frame; computes and makes changes to the ball sprite
+    ; Run after each frame; computes and makes changes to the ball position
 
     ; Simulate gravity by applying a constant Y increment
-    ld hl, hYSpeed
+    ld c, hYSpeed - $ff00
     ld de, GRAVITY
-
-    ld a, [hl]
+    ldh a, [c]
     add e
-    ldi [hl], a
-    ld c, a
-    ld a, [hl]
+    ldh [c], a
+    inc c
+    ldh a, [c]
     adc d
+    ldh [c], a
+
+.add_speed
+    ; Add Y speed to the ball's position
+    dec c
+    ld hl, hYPos
+    ; Y Pos, low byte
+    ldh a, [c]
+    add [hl]
+    ldi [hl], a
+    inc c
+    ; Y Pos, high byte
+    ldh a, [c]
+    adc [hl]
     ld [hl], a
+
+    ; Add X speed to the ball's position
+    ld c, hXSpeed - $ff00
+    ld hl, hXPos
+    ; X Pos, low byte
+    ldh a, [c]
+    add [hl]
+    ldi [hl], a
+    inc c
+    ; X Pos, high byte
+    ldh a, [c]
+    adc [hl]
+    ld [hl], a
+
+    ; Add rotation speed to the rotation
+    ld hl, hRotSpeed
+    ldd a, [hl]
+    add [hl]
+    ld [hl], a
+
+.detect_collisions
+    ld b, 0  ; Will hold collision ID
+
+    ; Y collisions first
+    ld hl, hYPos + 1
+    ld a, SCREEN_Y - 16
+    cp [hl] ; Carry set => Y > limit => collision
+    jr nc, .collisions_X
+
+    ldh a, [hYSpeed + 1]
+    jr .collisions_set
+
+.collisions_X
+    ; X collisions second
+    ld hl, hXPos + 1
+    ld a, SCREEN_X - 16
+    cp [hl] ; Carry set => X > limit => collision
+    ret nc
+
+    ldh a, [hXSpeed + 1]
+    set 1, b
+
+.collisions_set
+    ; Reminder on X collision modes:
+    ; 00 - Collision in Y0, vY < 0
+    ; 01 - Collision in Yl, vY ≥ 0
+    ; 10 - Collision in X0, vX < 0
+    ; 11 - Collision in Xl, vX ≥ 0
+    cp $80 ; Carry set => 0 ≤ A < 128
+    ld a, 0
+    adc b
+    ld b, a
 
     ; Process Y movement and collisions
     ld hl, hYPos
-    ld de, hYSpeed
     ld b, SCREEN_Y - 16
     call ProcessAxis
 
     ; Process X movement and collisions
     ld hl, hXPos
-    ld de, hXSpeed
     ld b, SCREEN_X - 16
     call ProcessAxis
-
-    ; Rotation, constant for now
-    ld hl, hRot
-    inc [hl]
 
     ret
 
@@ -65,23 +125,17 @@ PhysicsMain:
 ProcessAxis:
     ld c, 0
 
-    ; Add speed value to the position (16-bit)
-    ld a, [de]
-    add [hl]
-    ldi [hl], a
-    inc de
-    ld a, [de]
-    adc [hl]
-    ld [hl], a
-
     ; Process collisions on the high byte (pixels) only
+    inc hl
     ld a, b
     cp [hl]
     ret nc
     inc b
 
     ; Set B to 0 if the speed is negative
-    ld a, [de]
+    inc hl
+    inc hl
+    ldd a, [hl]
     cp $80
     ld a, c     ; Can't use XOR A, that would reset the carry!
     sbc a, c
@@ -90,6 +144,7 @@ ProcessAxis:
 
     ; BC now holds the limit; subtract that from the position
     ; Low byte of limit is always $00, so do high byte only
+    dec hl
     ld a, [hl]
     sub b
     ld [hl], a
@@ -207,7 +262,9 @@ hYSpeed:    dw
 hXPos:      dw
 hXSpeed:    dw
 hRot:       db
+hRotSpeed:  db
 ; Collision calculations
 hCYPos:     dw
 hCYSpeed:   dw
 hCXSpeed:   dw
+hCFlags:    db
