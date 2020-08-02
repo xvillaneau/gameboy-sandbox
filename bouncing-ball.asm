@@ -11,7 +11,6 @@ include "physics.asm"
 
 
 SECTION "VBlank Interrupt", ROM0[_VSYNC_CALL]
-    call PhysicsMain
     call RenderBall
     reti
 
@@ -55,6 +54,9 @@ Init:
     ei                ; Enable interrupts
 .loop:
     halt         ; Stop CPU until next interupt
+    nop
+    ; Once VBlank render routine is over, run the physics engine
+    call PhysicsMain
     jr .loop     ; Loop forever
 
 
