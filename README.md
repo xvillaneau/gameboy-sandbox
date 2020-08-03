@@ -18,7 +18,7 @@ Next steps:
 - [x] Experiment with using larger sprites (16x16 px?)
 - [x] Implement 16-bit physics, make the game slower
 - [x] Implement drag & friction
-- [ ] Make rotation depend on collisions
+- [x] Make rotation depend on collisions
 - [ ] Implement proper controls
 - [ ] Add sound effects
 - [ ] Extend collisions detection to other objects
