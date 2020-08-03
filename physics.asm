@@ -4,7 +4,7 @@ INCLUDE "macros.asm"
 
 ; Constants
 GRAVITY EQU $0010
-BUMP_DV EQU $40
+BUMP_DV EQU $60
 
 
 SECTION "Physics", ROM0
@@ -239,6 +239,46 @@ RunCollisions:
 
 
 PostTransform:
+
+    push bc
+
+    ; First, adjust the rotation speed based on hCXSpeed
+    ; The formula is roughly hRotSpeed = 10 x hCXSpeed
+    ld hl, hCXSpeed
+
+    ; Low byte x2, take bit 0
+    ldi a, [hl]
+    rlca
+    ld b, a
+    and $01
+    ld c, a
+
+    ; Low byte x8, take bits 2-0
+    ld a, b
+    rlca
+    rlca
+    and $07
+    add c
+    ld c, a
+
+    ; High byte x2, take bits 7-1
+    ld a, [hl]
+    rlca
+    ld b, a
+    and $fe
+    add c
+    ld c, a
+
+    ; High byte x8, take bits 7-3
+    ld a, b
+    rlca
+    rlca
+    and $f8
+    add c
+
+    ldh [hRotSpeed], a
+    pop bc
+
     ; Variables reminder:
     ;  B: HRAM offset of the relative X Speed
     ;  C: HRAM offset of the relative Y Pos
