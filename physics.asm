@@ -6,7 +6,9 @@ INCLUDE "macros.asm"
 GRAVITY EQU $0010
 BUMP_DV EQU $40
 
+
 SECTION "Physics", ROM0
+
 
 PhysicsInit:
     ; All ball variables are in an array
@@ -22,8 +24,8 @@ PhysicsInit:
     db 0, 1
     ; Collision calculations
     dw 0, 0, 0
-    db 0
 .data_end
+
 
 PhysicsMain:
     ; Run after each frame; computes and makes changes to the ball position
@@ -72,8 +74,9 @@ PhysicsMain:
     add [hl]
     ld [hl], a
 
-.detect_collisions
-    ld b, 0  ; Will hold collision ID
+
+DetectCollisions:
+    ld d, 0  ; Will hold collision ID
 
     ; Y collisions first
     ld hl, hYPos + 1
@@ -81,7 +84,9 @@ PhysicsMain:
     cp [hl] ; Carry set => Y > limit => collision
     jr nc, .collisions_X
 
-    ldh a, [hYSpeed + 1]
+    ld c, hYPos - $ff00
+    ld b, hXSpeed - $ff00
+    ld e, SCREEN_Y - 15
     jr .collisions_set
 
 .collisions_X
@@ -91,133 +96,116 @@ PhysicsMain:
     cp [hl] ; Carry set => X > limit => collision
     ret nc
 
-    ldh a, [hXSpeed + 1]
-    set 1, b
+    ld c, hXPos - $ff00
+    ld b, hYSpeed - $ff00
+    ld e, SCREEN_X - 15
+    set 1, d
 
 .collisions_set
-    ; Reminder on X collision modes:
-    ; 00 - Collision in Y0, vY < 0
-    ; 01 - Collision in Yl, vY ≥ 0
-    ; 10 - Collision in X0, vX < 0
-    ; 11 - Collision in Xl, vX ≥ 0
-    cp $80 ; Carry set => 0 ≤ A < 128
+
+    ; Make HL point to high byte of relative Y speed
+    ld h, $ff
+    ld a, c
+    add 3
+    ld l, a
+
+    ; Compute final value of D
+    ld a, [hl]
+    cp $80 ; Carry set => 0 ≤ A < 128 => Modes 01 or 11
     ld a, 0
-    adc b
+    adc d
+    ld d, a
+
+    ; Also compute final value of E: in modes 01 or 11, keep it.
+    ; Otherwise, set it to zero
+    and 1
+    sub 1
+    cpl
+    and e
+    ld e, a
+
+
+PreTransform:
+    ; Variables at this point:
+    ;  B: HRAM offset of the relative X Speed
+    ;  C: HRAM offset of the relative Y Pos
+    ;  D: Collision mode
+    ;  E: Collision relative Y offset
+
+    ; Copy the absolute position/speed values to the
+    ; correct relative registers.
+
+    ld hl, hCYPos
+    ; Position, low byte
+    ldh a, [c]
+    ldi [hl], a
+    inc c
+    ; Position, high byte with limit subtracted
+    ldh a, [c]
+    sub e
+    ldi [hl], a
+    inc c
+    ; Y relative speed, low byte
+    ldh a, [c]
+    ldi [hl], a
+    inc c
+    ; Y relative speed, high byte
+    ldh a, [c]
+    ldi [hl], a
+    ; X relative speed, low byte
+    ld a, c ; Swap B and C
+    ld c, b
     ld b, a
-
-    ; Process Y movement and collisions
-    ld hl, hYPos
-    ld b, SCREEN_Y - 16
-    call ProcessAxis
-
-    ; Process X movement and collisions
-    ld hl, hXPos
-    ld b, SCREEN_X - 16
-    call ProcessAxis
-
-    ret
-
-; Compute the next position along a given axis. If that position is out of
-; bounds, a bounce is computed and the speed reversed.
-;  @param hl  Address of the position (16 BIT!)
-;  @param de  Address of the speed (16 BIT!)
-;  @param b   Length along the axis
-ProcessAxis:
-    ld c, 0
-
-    ; Process collisions on the high byte (pixels) only
-    inc hl
-    ld a, b
-    cp [hl]
-    ret nc
-    inc b
-
-    ; Set B to 0 if the speed is negative
-    inc hl
-    inc hl
-    ldd a, [hl]
-    cp $80
-    ld a, c     ; Can't use XOR A, that would reset the carry!
-    sbc a, c
-    and b
-    ld b, a
-
-    ; BC now holds the limit; subtract that from the position
-    ; Low byte of limit is always $00, so do high byte only
-    dec hl
-    ld a, [hl]
-    sub b
+    ldh a, [c]
+    ldi [hl], a
+    inc c
+    ; X relative speed, high byte
+    ldh a, [c]
     ld [hl], a
 
-    ; Now, subtract that from the limit
-    dec hl
-    ld a, c
-    sub [hl]
-    ldi [hl], a
+    ; Reset the C and B offsets, we'll need them later
     ld a, b
-    sbc [hl]
-    ldi [hl], a  ; HL now points to the speed
-
-    ; Inverse speed (16 bit!).
-    xor a
-    sub [hl]
-    ldi [hl], a
-    ld a, c     ; Can't use XOR A, that would reset the carry!
-    sbc [hl]
-    ld [hl], a
-
-    ; Subtract constant bump friction
-    ld a, $80
-    cp [hl]
-    dec hl
-    jr c, .negative_friction ; Carry => V < 0 => Add friction
-
-    ; Otherwise, subtract friction
-    ld a, [hl]
-    sub BUMP_DV
-    ldi [hl], a
-    ld a, [hl]
-    sbc c
-    ldd [hl], a
-    ret nc
-    jr .set_zero
-
-.negative_friction
-    ld a, [hl]
-    add BUMP_DV
-    ldi [hl], a
-    ld a, [hl]
-    adc c
-    ldd [hl], a
-    ret nc
-
-.set_zero
-    ; HL points at speed; set it to zero
-    xor a
-    ldi [hl], a
-    ldd [hl], a
-
-    ; Compute position: If BC == 0 then keep it zero.
-    ; If not, subtract 1 from BC.
-    xor a
-    cp b
-    ld a, c
-    sbc c
+    dec c
+    ld b, c
+    sub 3
     ld c, a
-    ld a, b
-    sbc 0
-    ld b, a
 
-    ; Set position to value in BC
-    dec hl
-    ld [hl], b
-    dec hl
-    ld [hl], c
- 
-    ret
+    ; Finally, invert the registers where necessary
+    ld a, d 
+    cp 2
+    jr nc, .pre_x_col
+
+    and a
+    jr nz, .pre_mode_01
+
+; Mode 00
+    ld hl, hCXSpeed
+    NegAtHL
+    jr RunCollisions
+
+; Mode 01
+.pre_mode_01
+    ld hl, hCYPos
+    NegAtHL
+    inc hl ; hCYSpeed
+    NegAtHL
+    jr RunCollisions
+
+.pre_x_col
+    and 1
+    ; Nothing to do for mode 10
+    jr z, RunCollisions
+
+; Mode 11
+    ld hl, hCYPos
+    NegAtHL
+    inc hl ; hCYSpeed
+    NegAtHL
+    inc hl ; hCXSpeed
+    NegAtHL
 
 
-ProcessCollision:
+RunCollisions:
     ; Negate the relative position (now positive)
     ld hl, hCYPos
     NegAtHL
@@ -237,21 +225,103 @@ ProcessCollision:
 
     ; Otherwise, negate the Y speed (now positive)
     NegAtHL
-    ret
+    jr PostTransform
 
 .set_zero
-    ; Set speed to 0
+    ; Set speed and position to 0
     xor a
     ldi [hl], a  ; Speed, low byte
     ldd [hl], a  ; Speed, high byte
 
-    ; Set position to 1 sub-pixel
     dec hl
     ldd [hl], a  ; Pos, high byte
-    inc a
     ld [hl], a   ; Pos, low byte
- 
-    ret
+
+
+PostTransform:
+    ; Variables reminder:
+    ;  B: HRAM offset of the relative X Speed
+    ;  C: HRAM offset of the relative Y Pos
+    ;  D: Collision mode
+    ;  E: Collision relative Y offset
+
+    ; Add one subpixel to the position; this is to avoid issues when
+    ; the ball lands EXACTLY on the limit.
+    ld hl, hCYPos
+    ld a, [hl]
+    add 1
+    ldi [hl], a
+    ld a, [hl]
+    adc 0
+    ld [hl], a
+
+    ld a, d 
+    cp 2
+    jr nc, .post_x_col
+
+    and a
+    jr nz, .post_mode_01
+
+; Mode 00
+    ld hl, hCXSpeed
+    NegAtHL
+    jr .post_end
+
+; Mode 01
+.post_mode_01
+    ld hl, hCYPos
+    NegAtHL
+    inc hl ; hCYSpeed
+    NegAtHL
+    jr .post_end
+
+.post_x_col
+    and 1
+    ; Mode 10: Nothing to do
+    jr z, .post_end
+
+; Mode 11
+    ld hl, hCYPos
+    NegAtHL
+    inc hl ; hCYSpeed
+    NegAtHL
+    inc hl ; hCXSpeed
+    NegAtHL
+
+.post_end
+
+    ; Copy all relative values back into the correct
+    ; absolute registers.
+
+    ld hl, hCYPos
+    ; Position, low byte
+    ldi a, [hl]
+    ldh [c], a
+    inc c
+    ; Position, high byte with limit subtracted
+    ldi a, [hl]
+    add e
+    ldh [c], a
+    inc c
+    ; Y relative speed, low byte
+    ldi a, [hl]
+    ldh [c], a
+    inc c
+    ; Y relative speed, high byte
+    ldi a, [hl]
+    ldh [c], a
+    inc c
+    ; X relative speed, low byte
+    ld c, b
+    ldi a, [hl]
+    ldh [c], a
+    inc c
+    ; X relative speed, high byte
+    ld a, [hl]
+    ldh [c], a
+
+    ; Restart the process, in case that there is more than 1 collision
+    jp DetectCollisions
 
 
 SECTION "Physics Variables", HRAM
@@ -267,4 +337,3 @@ hRotSpeed:  db
 hCYPos:     dw
 hCYSpeed:   dw
 hCXSpeed:   dw
-hCFlags:    db

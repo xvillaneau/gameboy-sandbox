@@ -12,7 +12,7 @@ NegDE: MACRO
 .endNegDE\@
 ENDM
 
-; Make the 16-bit value in DE negative
+; Make the 16-bit value at [HL] negative
 NegAtHL: MACRO
     xor a
     sub [hl]
