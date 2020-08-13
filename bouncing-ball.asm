@@ -8,20 +8,7 @@
 
 include "constants.asm"
 include "physics.asm"
-
-
-SECTION "VBlank Interrupt", ROM0[_VSYNC_CALL]
-    call RenderBall
-    reti
-
-
-SECTION "Header", ROM0[_EXEC_BEGIN]
-
-EntryPoint:
-    nop
-    jp Init
-    ; Make space for ROM header
-    ds $0150 - @, $00
+include "header.asm"
 
 
 SECTION "Initialization", ROM0
@@ -54,7 +41,7 @@ Init:
     ei                ; Enable interrupts
 .loop:
     halt         ; Stop CPU until next interupt
-    nop
+    ; The needs to be a NOP after HALT, rgbasm does that for us
     ; Once VBlank render routine is over, run the physics engine
     call PhysicsMain
     jr .loop     ; Loop forever
