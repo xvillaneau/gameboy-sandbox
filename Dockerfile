@@ -7,11 +7,13 @@
 
 # Stage 1: download RGBDS code and build it
 FROM alpine:latest
-RUN apk add --update build-base byacc flex libpng-dev
+RUN apk add --update bison build-base libpng-dev
 
-ADD https://github.com/rednex/rgbds/archive/v0.4.0.tar.gz /
-RUN tar -x -z -f v0.4.0.tar.gz
-RUN mv rgbds-0.4.0 rgbds
+ENV VERSION=0.5.1
+
+ADD https://github.com/rednex/rgbds/archive/v${VERSION}.tar.gz /
+RUN tar -x -z -f v${VERSION}.tar.gz
+RUN mv rgbds-${VERSION} rgbds
 
 WORKDIR /rgbds
 RUN make Q='' all
