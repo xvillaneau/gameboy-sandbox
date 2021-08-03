@@ -1,0 +1,12 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build ROM",
+            "type": "shell",
+            "command": "docker run --rm --name 'gameboy_build' -v ${PWD}:/source rgbds:0.5.1",
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}
