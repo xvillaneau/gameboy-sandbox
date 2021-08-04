@@ -201,7 +201,21 @@ PlaySound:
     ld a, b
     and a, INPUT_DOWN
     jr z, .end
-    ; TODO
+    
+    DEF CH4_ENV_INIT    EQU 12
+    DEF CH4_ENV_STEP    EQU 4
+    DEF CH4_SHIFT_FREQ  EQU 4
+    DEF CH4_FREQ_RATIO  EQU 2
+
+    ; Volume envelope
+    ld a, (CH4_ENV_INIT << 4) + AUDENV_DOWN + CH4_ENV_STEP
+    ldh [rNR42], a
+    ; Polynomial Counter
+    ld a, (CH4_SHIFT_FREQ << 4) + CH4_FREQ_RATIO
+    ldh [rNR43], a
+    ; Restart channel
+    ld a, AUDHIGH_RESTART
+    ldh [rNR44], a
 
 .end
     ret
