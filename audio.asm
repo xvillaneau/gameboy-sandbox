@@ -89,6 +89,17 @@ InitSound:
     ld a, AUDENA_ON
     ldh [rNR52], a
 
+    ; Copy the wave pattern to 
+    ld hl, SINE_WAVE
+    ld c, _AUD3WAVERAM & $ff
+    ld b, 16
+.wave_copy_loop
+    ld a, [hli]
+    ldh [c], a
+    inc c
+    dec b
+    jr nz, .wave_copy_loop
+
     ; Configure global sound options:
     ld a, $ff           ; Enable all channels and terminals
     ldh [rNR51], a
@@ -96,6 +107,10 @@ InitSound:
     ld [rNR50], a
     ret
 
+SINE_WAVE:
+    db $89, $ac, $de, $ef, $ff, $ee, $dc, $a9
+    db $86, $53, $21, $10, $00, $11, $23, $56
+.end
 
 ; Play sound on input
 PlaySound:
@@ -140,24 +155,47 @@ PlaySound:
     ld a, b
     and a, INPUT_RIGHT
     jr z, .play_channel_3
+
+    DEF CH2_ENV_INIT EQU 12
+    DEF CH2_ENV_STEP EQU 4
+    DEF CH2_FREQ     EQU $480
+
     ; Wave pattern duty
     ld a, AUDLEN_DUTY_25
     ldh [rNR21], a
     ; Volume envelope
-    ld a, ($c << 4) + AUDENV_DOWN + 4
+    ld a, (CH2_ENV_INIT << 4) + AUDENV_DOWN + CH2_ENV_STEP
     ldh [rNR22], a
     ; Freq lo
-    ld a, $80
+    ld a, CH2_FREQ & $ff
     ldh [rNR23], a
     ; Freq hi + Restart channel
-    ld a, AUDHIGH_RESTART + 4
+    ld a, AUDHIGH_RESTART + (CH2_FREQ >> 8)
     ldh [rNR24], a
 
 .play_channel_3
     ld a, b
     and a, INPUT_UP
     jr z, .play_channel_4
-    ; TODO
+
+    DEF CH3_LENGTH EQU 256
+    DEF CH3_FREQ   EQU 1750  ; 131072 / (2048 - 1750) = 440Hz
+
+    ; Enable playback
+    ld a, $80
+    ldh [rNR30], a
+    ; Sound length
+    ld a, 256 - CH3_LENGTH
+    ldh [rNR31], a
+    ; Output level
+    ld a, %01 << 5
+    ldh [rNR32], a
+    ; Freq lo
+    ld a, CH3_FREQ & $FF
+    ldh [rNR33], a
+    ; Freq hi + Restart channel
+    ld a, AUDHIGH_RESTART + AUDHIGH_LENGTH_ON + (CH3_FREQ >> 8)
+    ldh [rNR34], a
 
 .play_channel_4
     ld a, b
